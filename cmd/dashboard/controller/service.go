@@ -73,6 +73,8 @@ func listService(c *gin.Context) ([]*model.Service, error) {
 // @Description List service histories by server id
 // @Tags common
 // @param id path uint true "Server ID"
+// @param start_time query string false "Start time (format: 2006-01-02 15:04:05)"
+// @param end_time query string false "End time (format: 2006-01-02 15:04:05)"
 // @Produce json
 // @Success 200 {object} model.CommonResponse[[]model.ServiceInfos]
 // @Router /service/{id} [get]
@@ -96,9 +98,39 @@ func listServiceHistory(c *gin.Context) ([]*model.ServiceInfos, error) {
 		return nil, singleton.Localizer.ErrorT("unauthorized")
 	}
 
+	// handle start_time and end_time
+	startTimeStr := c.Query("start_time")
+	endTimeStr := c.Query("end_time")
+
+	startTime := time.Now().Add(-24 * time.Hour)
+	endTime := time.Now()
+
+	// parse start_time
+	if startTimeStr != "" {
+		parsedTime, err := time.Parse("2006-01-02 15:04:05", startTimeStr)
+		if err != nil {
+			return nil, singleton.Localizer.ErrorT("invalid start_time format, expected format: 2006-01-02 15:04:05")
+		}
+		startTime = parsedTime
+
+		// if only start_time, set end_time to start_time + 24 hours
+		if endTimeStr == "" {
+			endTime = startTime.Add(24 * time.Hour)
+		}
+	}
+
+	// parse end_time
+	if endTimeStr != "" && startTimeStr != "" {
+		parsedTime, err := time.Parse("2006-01-02 15:04:05", endTimeStr)
+		if err != nil {
+			return nil, singleton.Localizer.ErrorT("invalid end_time format, expected format: 2006-01-02 15:04:05")
+		}
+		endTime = parsedTime
+	}
+
 	var serviceHistories []*model.ServiceHistory
 	if err := singleton.DB.Model(&model.ServiceHistory{}).Select("service_id, created_at, server_id, avg_delay").
-		Where("server_id = ?", id).Where("created_at >= ?", time.Now().Add(-24*time.Hour)).Order("service_id, created_at").
+		Where("server_id = ?", id).Where("created_at >= ? AND created_at <= ?", startTime, endTime).Order("service_id, created_at").
 		Scan(&serviceHistories).Error; err != nil {
 		return nil, err
 	}
